@@ -90,10 +90,14 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             var recovered = calculator.recover(current.state(),params,hours);
             var side = event.getShopAction().name().equals("BUY") ?
                 PricingEngine.Side.BUY : PricingEngine.Side.SELL;
+            int maximum = getConfig().getInt("pricing.max-transaction-quantity",4096);
+            if (event.getAmount() <= 0 || maximum <= 0 || event.getAmount() > maximum)
+                throw new IllegalArgumentException("Trade quantity exceeds configured limit");
             var quote = policy.quote(calculator,recovered,side,event.getAmount());
-            if (!Double.isFinite(quote.total()) || quote.total() > 9.0e15)
+            if (!Double.isFinite(quote.total()) || quote.total() <= 0 || quote.total() > 9.0e15)
                 throw new ArithmeticException("Price cannot be represented safely");
             double price = Math.round(quote.total()*100.0)/100.0;
+            if (price < .01) throw new ArithmeticException("Dynamic price rounds below one currency cent");
             event.setPrice(price);
             // Commit the recovered market state on success, not on price preview.
             pending.put(player,new Pending(key,event.getAmount(),event.getShopAction().name(),
