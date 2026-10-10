@@ -94,3 +94,13 @@ shops: {}
 
 # Tax settings are price surcharges/haircuts (money sinks), not transfers
 # to a treasury account. Treasury routing needs a real wallet integration.
+
+# Finite-stock replenishment (STOCK and STATIC_STOCK only):
+# shops:
+#   minerals:
+#     type: STOCK
+#     stock-target: 1000
+#     stock-initial: 500
+#     stock-restock-per-hour: 25
+#     stock-max: 2000
+# stock-max: unlimited means no inventory ceiling (independent of price caps).
