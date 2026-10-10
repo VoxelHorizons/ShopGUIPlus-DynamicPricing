@@ -205,7 +205,8 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
                 throw new ArithmeticException("Price cannot be represented safely");
             int decimals = (int) number(item, "currency-decimals", 2);
             if (decimals < 0 || decimals > 6) throw new IllegalArgumentException("Currency decimals must be 0..6");
-            double price = roundTotal(quote.total(), side, decimals);
+            double taxable = taxAdjustedTotal(item, quote.total(), side);
+            double price = roundTotal(taxable, side, decimals);
             if (price <= 0) throw new ArithmeticException("Dynamic price rounds to zero");
             event.setPrice(price);
             // Commit the recovered market state on success, not on price preview.
@@ -272,11 +273,22 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             if (!Double.isFinite(quoted.total()) || quoted.total() <= 0) return "unavailable";
             int decimals = (int) number(item,"currency-decimals",2);
             if (decimals < 0 || decimals > 6) return null;
-            double rounded = roundTotal(quoted.total(),side,decimals);
+            double rounded = roundTotal(taxAdjustedTotal(item,quoted.total(),side),side,decimals);
             return String.format(Locale.ROOT,"%."+decimals+"f",rounded);
         } catch (RuntimeException e) {
             return "unavailable";
         }
+    }
+
+    /** Percentage-based checkout fee/sink; no external economy payout is attempted. */
+    private double taxAdjustedTotal(ShopItem item, double amount, PricingEngine.Side side) {
+        double rate=number(item,side==PricingEngine.Side.BUY?"tax.buy-percent":"tax.sell-percent",0);
+        if (!Double.isFinite(rate) || rate < 0 || rate > 100)
+            throw new IllegalArgumentException("Tax percentage must be between 0 and 100");
+        double adjusted=amount * (side==PricingEngine.Side.BUY ? 1+rate/100 : 1-rate/100);
+        if (!Double.isFinite(adjusted) || adjusted <= 0)
+            throw new ArithmeticException("Tax-adjusted price is zero or invalid");
+        return adjusted;
     }
 
     private static double roundTotal(double total, PricingEngine.Side side, int decimals) {
