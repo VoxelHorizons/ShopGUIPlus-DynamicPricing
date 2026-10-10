@@ -58,3 +58,17 @@ shops: {}
 #         type: LINK
 #         link: ores:diamond
 # LINK chains are allowed, but missing targets and reference cycles reject trades.
+
+# Optional per-player rolling transaction limits:
+# shops:
+#   rare_resources:
+#     items:
+#       diamond:
+#         limits:
+#           buy:
+#             units: 64
+#             period-minutes: 1440
+#           sell:
+#             units: 128
+#             period-minutes: 1440
+# Values of 0 or absent mean no limit. Counters advance only after success.
