@@ -141,6 +141,30 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             return price;
         } finally {visited.remove(id(item));}
     }
+    private PricingEngine.State recoveredMarket(ShopItem item, Market current,
+                                                 PricingEngine.Parameters parameters,
+                                                 ShopPricing.Mode mode) {
+        double elapsed = Math.max(0,System.currentTimeMillis()-current.time())/3600000.0;
+        PricingEngine.State recovered=calculator.recover(current.state(),parameters,elapsed);
+        if (mode != ShopPricing.Mode.STOCK && mode != ShopPricing.Mode.STATIC_STOCK)
+            return recovered;
+        double rate=number(item,"stock-restock-per-hour",0);
+        if(!Double.isFinite(rate) || rate<0) throw new IllegalArgumentException("Invalid stock restock rate");
+        if(rate==0) return recovered;
+        Double maximum=optional(item,"stock-max",parameters.stockTarget());
+        if(maximum==null) maximum=Double.MAX_VALUE;
+        if(!Double.isFinite(maximum) || maximum<0)
+            throw new IllegalArgumentException("Invalid stock maximum");
+        double stock=Math.min(maximum,recovered.stock()+rate*elapsed);
+        if(!Double.isFinite(stock) || stock<0) throw new ArithmeticException("Stock arithmetic overflow");
+        return new PricingEngine.State(recovered.netDemand(),stock);
+    }
+    private PricingEngine.State initialMarket(ShopItem item, PricingEngine.Parameters parameters) {
+        double stock=number(item,"stock-initial",parameters.stockTarget());
+        if(!Double.isFinite(stock) || stock<0) throw new IllegalArgumentException("Invalid initial stock");
+        return new PricingEngine.State(0,stock);
+    }
+
     private ShopPricing policy(ShopItem item) {
         var type = ShopPricing.Mode.valueOf(String.valueOf(setting(item, "type", "DYNAMIC"))
                 .toUpperCase(Locale.ROOT));
@@ -180,9 +204,8 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             ShopPricing policy = policy(marketItem);
             PricingEngine.Parameters params = policy.parameters();
             var current = markets.getOrDefault(key,
-                    new Market(new PricingEngine.State(0,params.stockTarget()),System.currentTimeMillis()));
-            double hours = Math.max(0,System.currentTimeMillis()-current.time())/3600000.0;
-            var recovered = calculator.recover(current.state(),params,hours);
+                    new Market(initialMarket(marketItem,params),System.currentTimeMillis()));
+            var recovered = recoveredMarket(marketItem,current,params,policy.mode());
             var side = event.getShopAction().name().equals("BUY") ?
                 PricingEngine.Side.BUY : PricingEngine.Side.SELL;
             checkTradeLimit(item, player, event.getShopAction().name(), event.getAmount());
@@ -201,6 +224,11 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
                 quote = custom.quote(params,recovered,policy.mode(),side,event.getAmount());
             } else {
                 quote = policy.quote(calculator,recovered,side,event.getAmount());
+            }
+            if (policy.mode() == ShopPricing.Mode.STOCK || policy.mode() == ShopPricing.Mode.STATIC_STOCK) {
+                Double stockCap=optional(marketItem,"stock-max",null);
+                if(stockCap != null && quote.after().stock()>stockCap)
+                    throw new IllegalArgumentException("Market stock maximum exceeded");
             }
             if (!Double.isFinite(quote.total()) || quote.total() <= 0 || quote.total() > 9.0e15)
                 throw new ArithmeticException("Price cannot be represented safely");
@@ -249,9 +277,8 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             var policy = policy(marketItem);
             var params = policy.parameters();
             var original = markets.getOrDefault(id(marketItem),
-                    new Market(new PricingEngine.State(0,params.stockTarget()),System.currentTimeMillis()));
-            var state = calculator.recover(original.state(),params,
-                    Math.max(0,System.currentTimeMillis()-original.time())/3600000.0);
+                    new Market(initialMarket(marketItem,params),System.currentTimeMillis()));
+            var state = recoveredMarket(marketItem,original,params,policy.mode());
             if ("stock".equals(field)) return String.format(Locale.ROOT,"%.0f",state.stock());
             if ("demand".equals(field)) return String.format(Locale.ROOT,"%.2f",state.netDemand());
             PricingEngine.Side side = "buy".equals(field) ? PricingEngine.Side.BUY :
