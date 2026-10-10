@@ -20,6 +20,38 @@ and `shops.<shopId>.items.<itemId>`. Each configured field inherits the nearest
 parent value unless explicitly set. Default base prices come from ShopGUIPlus.
 Sell-only / buy-only listings retain their restrictions.
 
+### Custom pricing equations
+
+Optional `buy-formula` and `sell-formula` settings override the built-in price
+equations for a shop or individual item. Both must be provided. The formulas are
+compiled with a restricted expression parser (not JavaScript), supporting
+`+`, `-`, `*`, `/`, `^` and functions `min`, `max`, `pow`, `exp`, `ln`,
+`sqrt`, `abs`, `clamp`. Variables include `baseBuy`, `baseSell`, `demand`,
+`stock`, `target`, `buyImpact`, `sellImpact`, `stockSensitivity`,
+`stockRatio`, `quantity`, `unitIndex`, and `side`.
+Pricing limits and the minimum buy/sell spread still apply.
+
+```yaml
+shops:
+  ores:
+    type: DYNAMIC
+    maximum-multiplier: unlimited
+    absolute-maximum: unlimited
+    buy-formula: "baseBuy * exp(demand * buyImpact)"
+    sell-formula: "baseSell * exp(demand * sellImpact)"
+```
+
+### Price previews through PlaceholderAPI
+
+When PlaceholderAPI is installed, the plugin registers an internal expansion:
+`%dynamicpricing_buy_ores:diamond%`,
+`%dynamicpricing_sell_ores:diamond#64%`,
+`%dynamicpricing_stock_ores:diamond%` and
+`%dynamicpricing_demand_ores:diamond%`.
+These are read-only quote previews, not trade commits.
+Support for these placeholders in ShopGUIPlus's built-in lore is dependent on
+that plugin's PlaceholderAPI handling; staging validation is required.
+
 The four optional bounds are `minimum-multiplier`, `maximum-multiplier`,
 `absolute-minimum`, and `absolute-maximum`. To remove a globally inherited cap
 set it to the string `unlimited` in a shop or item configuration. Omission from
@@ -37,6 +69,11 @@ transaction amount limit; "unbounded" is not unlimited floating-point precision.
    cancelled purchases, full inventory, saving/restart, and disabled shop directions.
 6. Compare displayed prices to charged amounts. ShopGUIPlus price preview and
    transaction price must agree before this can be considered production-ready.
+
+The `pricing.max-transaction-quantity` setting limits expensive progressive
+trade simulations (default 4096). The numeric currency precision of the
+current runtime bridge is fixed at two decimal places; other economy precisions
+require further adapter work.
 
 Admin commands: `/dynamicpricing reload` and `/dynamicpricing save`;
 permission `dynamicpricing.admin` (default OP).
