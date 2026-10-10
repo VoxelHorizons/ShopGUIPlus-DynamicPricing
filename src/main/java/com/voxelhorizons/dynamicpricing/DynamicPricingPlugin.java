@@ -49,21 +49,26 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
     }
     private Double optional(ShopItem item, String name, Double fallback) {
         Object value = setting(item,name,fallback);
-        if (value == null || "null".equalsIgnoreCase(value.toString())) return null;
+        if (value == null || "null".equalsIgnoreCase(value.toString()) ||
+                "unlimited".equalsIgnoreCase(value.toString()) || "none".equalsIgnoreCase(value.toString()))
+            return null;
         if (!(value instanceof Number n)) throw new IllegalArgumentException("Expected number: " + name);
         return n.doubleValue();
     }
     private ShopPricing policy(ShopItem item) {
         var type = ShopPricing.Mode.valueOf(String.valueOf(setting(item, "type", "DYNAMIC"))
                 .toUpperCase(Locale.ROOT));
-        double buy = number(item,"base-buy",item.getBuyPrice());
-        double sell = number(item,"base-sell",item.getSellPrice());
+        // Disabled buy/sell directions are filtered before policy resolution.
+        // Use a synthetic base for the unavailable side so sell-only and buy-only listings remain valid.
+        double originalBuy = item.getBuyPrice(), originalSell = item.getSellPrice();
+        double buy = number(item,"base-buy",originalBuy > 0 ? originalBuy : Math.max(.01, originalSell / .7));
+        double sell = number(item,"base-sell",originalSell > 0 ? originalSell : Math.max(.01, buy * .7));
         var params = new PricingEngine.Parameters(buy, sell,
-            optional(item,"minimum-multiplier",0.65), optional(item,"maximum-multiplier",1.75),
+            optional(item,"minimum-multiplier",null), optional(item,"maximum-multiplier",null),
             number(item,"buy-impact-per-item",.002), number(item,"sell-impact-per-item",.0015),
             number(item,"stock-sensitivity",.2), number(item,"stock-target",1000),
             number(item,"recovery-half-life-hours",24), number(item,"minimum-spread",.1),
-            optional(item,"absolute-minimum",.01), optional(item,"absolute-maximum",1000000.0));
+            optional(item,"absolute-minimum",null), optional(item,"absolute-maximum",null));
         return new ShopPricing(type,params);
     }
     @EventHandler(priority=EventPriority.HIGHEST,ignoreCancelled=true)
@@ -72,6 +77,9 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
         pending.remove(player);
         ShopItem item = event.getShopItem();
         if (item == null) return;
+        // Preserve ShopGUIPlus disabled/free item behaviour; never make unavailable sides tradeable.
+        if (event.getShopAction().name().equals("BUY") && item.getBuyPrice() <= 0) return;
+        if (!event.getShopAction().name().equals("BUY") && item.getSellPrice() <= 0) return;
         try {
             String key = id(item);
             ShopPricing policy = policy(item);
