@@ -15,26 +15,29 @@ public final class PricingEngine {
      */
     public record Parameters(
             double baseBuy, double baseSell,
-            double minimumMultiplier, double maximumMultiplier,
+            Double minimumMultiplier, Double maximumMultiplier,
             double buyImpact, double sellImpact,
             double stockSensitivity, double stockTarget,
             double recoveryHalfLifeHours, double minimumSpread,
-            double absoluteMinimum, double absoluteMaximum) {
+            Double absoluteMinimum, Double absoluteMaximum) {
         public Parameters {
             requirePositive(baseBuy, "baseBuy");
             requirePositive(baseSell, "baseSell");
-            requireNonNegative(minimumMultiplier, "minimumMultiplier");
-            requirePositive(maximumMultiplier, "maximumMultiplier");
+            if (minimumMultiplier != null) requireNonNegative(minimumMultiplier, "minimumMultiplier");
+            if (maximumMultiplier != null) requirePositive(maximumMultiplier, "maximumMultiplier");
             requireNonNegative(buyImpact, "buyImpact");
             requireNonNegative(sellImpact, "sellImpact");
             requireNonNegative(stockSensitivity, "stockSensitivity");
             requirePositive(stockTarget, "stockTarget");
             requirePositive(recoveryHalfLifeHours, "recoveryHalfLifeHours");
             requireNonNegative(minimumSpread, "minimumSpread");
-            requirePositive(absoluteMinimum, "absoluteMinimum");
-            requirePositive(absoluteMaximum, "absoluteMaximum");
-            if (baseSell > baseBuy || minimumMultiplier > 1 || maximumMultiplier < 1 ||
-                    absoluteMaximum < absoluteMinimum || minimumSpread >= 1)
+            if (absoluteMinimum != null) requirePositive(absoluteMinimum, "absoluteMinimum");
+            if (absoluteMaximum != null) requirePositive(absoluteMaximum, "absoluteMaximum");
+            if (baseSell > baseBuy ||
+                    (minimumMultiplier != null && minimumMultiplier > 1) ||
+                    (maximumMultiplier != null && maximumMultiplier < 1) ||
+                    (minimumMultiplier != null && maximumMultiplier != null && minimumMultiplier > maximumMultiplier) ||
+                    (absoluteMinimum != null && absoluteMaximum != null && absoluteMaximum < absoluteMinimum) || minimumSpread >= 1)
                 throw new IllegalArgumentException("Inconsistent price bounds, bases or spread");
         }
         private static void requirePositive(double v, String n) {
@@ -74,10 +77,23 @@ public final class PricingEngine {
         double demandImpact = s.netDemand() >= 0
                 ? p.buyImpact() * s.netDemand() : p.sellImpact() * s.netDemand();
         double stockImpact = p.stockSensitivity() * (p.stockTarget() - s.stock()) / p.stockTarget();
-        double exponent = Math.max(-100, Math.min(100, demandImpact + stockImpact));
-        double multiplier = clamp(Math.exp(exponent), p.minimumMultiplier(), p.maximumMultiplier());
-        double buy = clamp(p.baseBuy() * multiplier, p.absoluteMinimum(), p.absoluteMaximum());
-        double sell = clamp(p.baseSell() * multiplier, p.absoluteMinimum(), p.absoluteMaximum());
+        double exponent = demandImpact + stockImpact;
+        // Explicitly reject unrepresentable prices. Do not silently impose a hidden cap.
+        if (!Double.isFinite(exponent)) throw new ArithmeticException("Non-finite market exponent");
+        double multiplier = Math.exp(exponent);
+        if (!Double.isFinite(multiplier)) throw new ArithmeticException("Market price exceeds numeric range");
+        if (p.minimumMultiplier() != null) multiplier = Math.max(multiplier, p.minimumMultiplier());
+        if (p.maximumMultiplier() != null) multiplier = Math.min(multiplier, p.maximumMultiplier());
+        double buy = checkedPrice(p.baseBuy() * multiplier);
+        double sell = checkedPrice(p.baseSell() * multiplier);
+        if (p.absoluteMinimum() != null) {
+            buy = Math.max(buy, p.absoluteMinimum());
+            sell = Math.max(sell, p.absoluteMinimum());
+        }
+        if (p.absoluteMaximum() != null) {
+            buy = Math.min(buy, p.absoluteMaximum());
+            sell = Math.min(sell, p.absoluteMaximum());
+        }
         // No arbitrage from configuration or clamping; if the cap prevents spread, stop offering sales.
         if (side == Side.BUY) return buy;
         return Math.max(0, Math.min(sell, buy * (1.0 - p.minimumSpread())));
@@ -96,13 +112,15 @@ public final class PricingEngine {
             if (side == Side.BUY && cursor.stock() < 1) throw new IllegalStateException("Insufficient stock");
             last = unitPrice(p, cursor, side);
             total += last;
+            if (!Double.isFinite(total)) throw new ArithmeticException("Trade total exceeds numeric range");
             cursor = side == Side.BUY
                     ? new State(cursor.netDemand() + 1, cursor.stock() - 1)
                     : new State(cursor.netDemand() - 1, cursor.stock() + 1);
         }
         return new Quote(total, total / quantity, last, cursor);
     }
-    private static double clamp(double number, double min, double max) {
-        return Math.max(min, Math.min(max, number));
+    private static double checkedPrice(double value) {
+        if (!Double.isFinite(value) || value < 0) throw new ArithmeticException("Invalid market price");
+        return value;
     }
 }

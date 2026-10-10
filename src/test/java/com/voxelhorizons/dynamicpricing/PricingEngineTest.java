@@ -33,6 +33,23 @@ class PricingEngineTest {
     @Test void failsClosedWhenStockMissing() {
         assertThrows(IllegalStateException.class, () -> engine.quote(p, new PricingEngine.State(0, 0), BUY, 1));
     }
+    @Test void omittedCapsPermitExponentialGrowth() {
+        var unlimited = new PricingEngine.Parameters(100, 70, null, null, .002, .0015,
+                .2, 1000, 24, .10, null, null);
+        assertTrue(engine.unitPrice(unlimited, new PricingEngine.State(2000, 1000), BUY) > 1000);
+        assertThrows(ArithmeticException.class,
+                () -> engine.unitPrice(unlimited, new PricingEngine.State(1_000_000, 1000), BUY));
+    }
+    @Test void shopTypesCanBeResolvedIndependently() {
+        var dynamic = new ShopPricing(ShopPricing.Mode.DYNAMIC, p);
+        var fixed = new ShopPricing(ShopPricing.Mode.STATIC, p);
+        var stock = new ShopPricing(ShopPricing.Mode.STOCK, p);
+        var state = new PricingEngine.State(100, 500);
+        assertEquals(p.baseBuy(), fixed.quote(engine, state, BUY, 1).total(), 1e-6);
+        assertTrue(dynamic.quote(engine, state, BUY, 1).total() >
+                   stock.quote(engine, state, BUY, 1).total());
+        assertTrue(stock.quote(engine, state, BUY, 1).total() > p.baseBuy());
+    }
     @Test void respectsLimitsAndRejectsInvalidParameters() {
         var high = new PricingEngine.State(1e8, 0);
         assertTrue(engine.unitPrice(p, high, BUY) <= 175 + 1e-8);
