@@ -50,6 +50,18 @@ class PricingEngineTest {
                    stock.quote(engine, state, BUY, 1).total());
         assertTrue(stock.quote(engine, state, BUY, 1).total() > p.baseBuy());
     }
+    @Test void fixedStockModePreservesPriceAndRejectsOutOfStock() {
+        var fixed = new ShopPricing(ShopPricing.Mode.STATIC_STOCK, p);
+        var before = new PricingEngine.State(20, 3);
+        var quoted = fixed.quote(engine, before, BUY, 2);
+        assertEquals(200, quoted.total(), 1e-8);
+        assertEquals(1, quoted.after().stock(), 1e-8);
+        assertThrows(IllegalStateException.class, () -> fixed.quote(engine, before, BUY, 4));
+    }
+    @Test void dynamicModeDoesNotRequirePhysicalStock() {
+        var dynamic = new ShopPricing(ShopPricing.Mode.DYNAMIC, p);
+        assertDoesNotThrow(() -> dynamic.quote(engine, new PricingEngine.State(0,0), BUY, 64));
+    }
     @Test void respectsLimitsAndRejectsInvalidParameters() {
         var high = new PricingEngine.State(1e8, 0);
         assertTrue(engine.unitPrice(p, high, BUY) <= 175 + 1e-8);
