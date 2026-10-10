@@ -28,3 +28,21 @@ shops: {}
 #         buy-impact-per-item: 0.005
 # Omitting a bound from the global defaults means no bound. Omitting at shop/item
 # level inherits the nearest parent; "unlimited" explicitly disables the inherited bound.
+
+# Optional custom equations (both are required when one is specified).
+# You may use +, -, *, /, ^ and min/max/pow/exp/ln/sqrt/abs/clamp.
+# Available variables: baseBuy, baseSell, demand, stock, target,
+# buyImpact, sellImpact, stockSensitivity, stockRatio, quantity, unitIndex, side.
+#
+# shops:
+#   rare_resources:
+#     type: DYNAMIC
+#     maximum-multiplier: unlimited
+#     absolute-maximum: unlimited
+#     buy-formula: "baseBuy * exp(demand * buyImpact)"
+#     sell-formula: "baseSell * exp(demand * sellImpact)"
+#     items:
+#       diamond:
+#         buy-impact-per-item: 0.004
+#
+# Configured bounds still apply to formula results. Minimum spread is enforced.
