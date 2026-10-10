@@ -18,7 +18,14 @@ public record ShopPricing(Mode mode, PricingEngine.Parameters parameters) {
         Objects.requireNonNull(side);
         if (quantity <= 0 || quantity > 100_000) throw new IllegalArgumentException("quantity");
         return switch (mode) {
-            case DYNAMIC -> engine.quote(parameters, state, side, quantity);
+            case DYNAMIC -> engine.quote(
+                    new PricingEngine.Parameters(parameters.baseBuy(), parameters.baseSell(),
+                        parameters.minimumMultiplier(),parameters.maximumMultiplier(),
+                        parameters.buyImpact(),parameters.sellImpact(),0,parameters.stockTarget(),
+                        parameters.recoveryHalfLifeHours(),parameters.minimumSpread(),
+                        parameters.absoluteMinimum(),parameters.absoluteMaximum()),
+                    new PricingEngine.State(state.netDemand(),Math.max(state.stock(),quantity + parameters.stockTarget())),
+                    side,quantity);
             case STATIC -> fixedQuote(parameters, state, side, quantity);
             case STOCK -> engine.quote(stockOnly(parameters), state, side, quantity);
         };

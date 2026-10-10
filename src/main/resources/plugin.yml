@@ -1,0 +1,12 @@
+name: DynamicPricing
+version: 0.2.0
+main: com.voxelhorizons.dynamicpricing.DynamicPricingPlugin
+api-version: '1.19'
+depend: [ShopGUIPlus]
+commands:
+  dynamicpricing:
+    aliases: [dpricing]
+    permission: dynamicpricing.admin
+permissions:
+  dynamicpricing.admin:
+    default: op
