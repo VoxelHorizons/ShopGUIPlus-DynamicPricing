@@ -62,6 +62,16 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
         if (!(value instanceof Number n)) throw new IllegalArgumentException("Expected number: " + name);
         return n.doubleValue();
     }
+    private boolean managed(ShopItem item) {
+        if (getConfig().getBoolean("pricing.manage-all-shops", false)) return true;
+        String shopPath = "shops." + item.getShop().getId();
+        String itemPath = shopPath + ".items." + item.getId();
+        if (getConfig().contains(itemPath + ".enabled"))
+            return getConfig().getBoolean(itemPath + ".enabled");
+        if (getConfig().contains(shopPath + ".enabled"))
+            return getConfig().getBoolean(shopPath + ".enabled");
+        return getConfig().contains(itemPath + ".type") || getConfig().contains(shopPath + ".type");
+    }
     private ShopPricing policy(ShopItem item) {
         var type = ShopPricing.Mode.valueOf(String.valueOf(setting(item, "type", "DYNAMIC"))
                 .toUpperCase(Locale.ROOT));
@@ -83,7 +93,7 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
         UUID player = event.getPlayer().getUniqueId();
         pending.remove(player);
         ShopItem item = event.getShopItem();
-        if (item == null) return;
+        if (item == null || !managed(item)) return;
         // Preserve ShopGUIPlus disabled/free item behaviour; never make unavailable sides tradeable.
         if (event.getShopAction().name().equals("BUY") && item.getBuyPrice() <= 0) return;
         if (!event.getShopAction().name().equals("BUY") && item.getSellPrice() <= 0) return;
@@ -150,7 +160,7 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             var shop = net.brcdev.shopgui.ShopGuiPlusApi.getShop(key.substring(0,separator));
             if (shop == null) return null;
             ShopItem item = shop.getShopItem(key.substring(separator+1));
-            if (item == null) return null;
+            if (item == null || !managed(item)) return null;
             var policy = policy(item);
             var params = policy.parameters();
             var original = markets.getOrDefault(id(item),
