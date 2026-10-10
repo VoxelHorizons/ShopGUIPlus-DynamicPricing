@@ -20,10 +20,13 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class DynamicPricingPlugin extends JavaPlugin implements Listener, CommandExecutor {
     private final PricingEngine calculator = new PricingEngine();
     private final Map<String, Market> markets = new HashMap<>();
+    private final Map<String, Usage> limitUsage = new HashMap<>();
     private final Map<String, FormulaPricing> formulas = new HashMap<>();
     private final Map<UUID, Pending> pending = new HashMap<>();
     private record Market(PricingEngine.State state, long time) {}
-    private record Pending(String sourceKey, String marketKey, int amount, String action, double price, double tolerance,
+    private record Usage(long windowStart, long units) {}
+    private record Pending(String sourceKey, String marketKey, String limitKey, int amount, String action,
+                           double price, double tolerance,
                            PricingEngine.State resulting) {}
     private File file;
     private DynamicPricingPlaceholders expansion;
@@ -134,6 +137,7 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             var recovered = calculator.recover(current.state(),params,hours);
             var side = event.getShopAction().name().equals("BUY") ?
                 PricingEngine.Side.BUY : PricingEngine.Side.SELL;
+            checkTradeLimit(item, player, event.getShopAction().name(), event.getAmount());
             int maximum = getConfig().getInt("pricing.max-transaction-quantity",4096);
             if (event.getAmount() <= 0 || maximum <= 0 || event.getAmount() > maximum)
                 throw new IllegalArgumentException("Trade quantity exceeds configured limit");
@@ -158,7 +162,8 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             if (price <= 0) throw new ArithmeticException("Dynamic price rounds to zero");
             event.setPrice(price);
             // Commit the recovered market state on success, not on price preview.
-            pending.put(player,new Pending(sourceKey,key,event.getAmount(),event.getShopAction().name(),
+            pending.put(player,new Pending(sourceKey,key,limitKey(player,item,event.getShopAction().name()),
+                    event.getAmount(),event.getShopAction().name(),
                     price,Math.pow(10,-decimals)/100.0,quote.after()));
         } catch (RuntimeException ex) {
             event.setCancelled(true); // Fail closed rather than allow zero-price transactions.
@@ -176,6 +181,7 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
                 || !candidate.action().equals(result.getShopAction().name())
                 || Math.abs(candidate.price()-result.getPrice()) > candidate.tolerance()) return;
         markets.put(candidate.marketKey(),new Market(candidate.resulting(),System.currentTimeMillis()));
+        recordTradeLimit(result.getShopItem(), candidate.limitKey(), candidate.action(), candidate.amount());
         try { saveMarket(); }
         catch(IOException ex) { getLogger().log(Level.SEVERE,"Failed to persist completed trade",ex); }
     }
@@ -232,8 +238,47 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
                 side == PricingEngine.Side.BUY ? RoundingMode.CEILING : RoundingMode.DOWN).doubleValue();
     }
 
+    private String limitKey(UUID player, ShopItem item, String action) {
+        return player.toString() + "|" + id(item) + "|" + action;
+    }
+
+    private void checkTradeLimit(ShopItem item, UUID player, String action, int amount) {
+        String mode = action.equals("BUY") ? "buy" : "sell";
+        int max = (int) number(item,"limits." + mode + ".units",0);
+        if (max <= 0) return;
+        int minutes = (int) number(item,"limits." + mode + ".period-minutes",60);
+        if (minutes <= 0 || minutes > 525600) throw new IllegalArgumentException("Invalid limit period");
+        long duration = minutes * 60_000L;
+        String key = limitKey(player,item,action);
+        Usage usage = limitUsage.get(key);
+        long now = System.currentTimeMillis();
+        long already = usage == null || now < usage.windowStart() || now - usage.windowStart() >= duration
+                ? 0 : usage.units();
+        if (amount <= 0 || amount > max - already)
+            throw new IllegalArgumentException("Shop transaction limit exceeded");
+    }
+    private void recordTradeLimit(ShopItem item, String key, String action, int amount) {
+        String mode = action.equals("BUY") ? "buy" : "sell";
+        int max = (int) number(item,"limits." + mode + ".units",0);
+        if (max <= 0) return;
+        int minutes = (int) number(item,"limits." + mode + ".period-minutes",60);
+        long now = System.currentTimeMillis(), duration = minutes * 60_000L;
+        Usage usage = limitUsage.get(key);
+        if (usage == null || now < usage.windowStart() || now - usage.windowStart() >= duration)
+            limitUsage.put(key,new Usage(now,amount));
+        else limitUsage.put(key,new Usage(usage.windowStart(),usage.units()+amount));
+    }
+
     private void loadMarket() {
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+        limitUsage.clear();
+        ConfigurationSection limits = yaml.getConfigurationSection("limits");
+        if (limits != null) for (String key : limits.getKeys(false)) {
+            String p = "limits." + key + ".";
+            long time=yaml.getLong(p+"window"), units=yaml.getLong(p+"units");
+            if (time>0 && units>=0 && units <= Integer.MAX_VALUE)
+                limitUsage.put(key,new Usage(time,units));
+        }
         ConfigurationSection entries = yaml.getConfigurationSection("markets");
         if(entries == null) return;
         for(String key : entries.getKeys(false)) {
@@ -246,6 +291,11 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
     }
     private void saveMarket() throws IOException {
         YamlConfiguration yaml = new YamlConfiguration();
+        for(var entry:limitUsage.entrySet()) {
+            String p = "limits." + entry.getKey() + ".";
+            yaml.set(p+"window",entry.getValue().windowStart());
+            yaml.set(p+"units",entry.getValue().units());
+        }
         for(var entry:markets.entrySet()) {
             String p = "markets."+entry.getKey()+".";
             yaml.set(p+"demand",entry.getValue().state().netDemand());
