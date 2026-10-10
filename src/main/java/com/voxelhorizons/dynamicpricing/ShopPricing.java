@@ -4,7 +4,7 @@ import java.util.Objects;
 
 /** Immutable pricing policy selected per shop (or item override). */
 public record ShopPricing(Mode mode, PricingEngine.Parameters parameters) {
-    public enum Mode { STATIC, DYNAMIC, STOCK }
+    public enum Mode { STATIC, DYNAMIC, STOCK, STATIC_STOCK }
 
     public ShopPricing {
         Objects.requireNonNull(mode, "mode");
@@ -27,6 +27,7 @@ public record ShopPricing(Mode mode, PricingEngine.Parameters parameters) {
                     new PricingEngine.State(state.netDemand(),Math.max(state.stock(),quantity + parameters.stockTarget())),
                     side,quantity);
             case STATIC -> fixedQuote(parameters, state, side, quantity);
+            case STATIC_STOCK -> fixedStockQuote(parameters, state, side, quantity);
             case STOCK -> engine.quote(stockOnly(parameters), state, side, quantity);
         };
     }
@@ -40,6 +41,16 @@ public record ShopPricing(Mode mode, PricingEngine.Parameters parameters) {
         return new PricingEngine.Quote(total, unit, unit, state);
     }
 
+    private static PricingEngine.Quote fixedStockQuote(PricingEngine.Parameters p, PricingEngine.State state,
+                                                 PricingEngine.Side side, int quantity) {
+        if (side == PricingEngine.Side.BUY && state.stock() < quantity)
+            throw new IllegalStateException("Insufficient stock");
+        PricingEngine.Quote price = fixedQuote(p,state,side,quantity);
+        double next = state.stock() + (side == PricingEngine.Side.BUY ? -quantity : quantity);
+        if (!Double.isFinite(next) || next < 0) throw new ArithmeticException("Stock out of range");
+        return new PricingEngine.Quote(price.total(),price.averageUnitPrice(),price.lastUnitPrice(),
+                new PricingEngine.State(state.netDemand(),next));
+    }
     private static PricingEngine.Parameters stockOnly(PricingEngine.Parameters p) {
         return new PricingEngine.Parameters(p.baseBuy(), p.baseSell(),
                 p.minimumMultiplier(), p.maximumMultiplier(), 0, 0,
