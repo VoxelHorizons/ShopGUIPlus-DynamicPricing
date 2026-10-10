@@ -62,6 +62,12 @@ class PricingEngineTest {
         var dynamic = new ShopPricing(ShopPricing.Mode.DYNAMIC, p);
         assertDoesNotThrow(() -> dynamic.quote(engine, new PricingEngine.State(0,0), BUY, 64));
     }
+    @Test void recipeModeReturnsFixedDerivedPrice() {
+        var recipe = new ShopPricing(ShopPricing.Mode.RECIPE, p);
+        var q = recipe.quote(engine, new PricingEngine.State(80,0), BUY, 3);
+        assertEquals(300,q.total(),1e-9);
+        assertEquals(0,q.after().stock(),1e-9);
+    }
     @Test void respectsLimitsAndRejectsInvalidParameters() {
         var high = new PricingEngine.State(1e8, 0);
         assertTrue(engine.unitPrice(p, high, BUY) <= 175 + 1e-8);
