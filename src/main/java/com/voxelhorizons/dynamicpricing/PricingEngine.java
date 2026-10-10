@@ -48,7 +48,7 @@ public final class PricingEngine {
         }
         public static Parameters conservative(double buyPrice) {
             return new Parameters(buyPrice, buyPrice * 0.70, 0.65, 1.75,
-                    0.002, 0.0015, 0.20, 1000, 24, 0.10, 0.01, 1_000_000);
+                    0.002, 0.0015, 0.20, 1000, 24, 0.10, 0.01, 1_000_000.0);
         }
     }
 
