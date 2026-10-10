@@ -1,4 +1,6 @@
 pricing:
+  # Only explicitly configured shops/items are managed unless enabled here.
+  manage-all-shops: false
   max-transaction-quantity: 4096
   defaults:
     type: DYNAMIC
