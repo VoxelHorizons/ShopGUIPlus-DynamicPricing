@@ -14,6 +14,8 @@ that confirms compilation, not compatibility with a specific proprietary runtime
 - `DYNAMIC`: demand-dependent price growth/decay, without finite stock.
 - `STOCK`: prices depend on finite stock.
 - `STATIC_STOCK`: fixed prices with finite stock.
+- `RECIPE`: derives base prices from configured ingredient shop listings.
+- `LINK`: uses another shop listing as a shared market (configured in the YAML, resolved before pricing).
 
 Global policy is set at `pricing.defaults`; overrides under `shops.<shopId>`
 and `shops.<shopId>.items.<itemId>`. Each configured field inherits the nearest
@@ -52,6 +54,28 @@ These are read-only quote previews, not trade commits.
 Support for these placeholders in ShopGUIPlus's built-in lore is dependent on
 that plugin's PlaceholderAPI handling; staging validation is required.
 
+### Transaction controls
+
+Per-player buy/sell unit limits are available at shop or item scope:
+`limits.buy.units`, `limits.buy.period-minutes`,
+`limits.sell.units` and `limits.sell.period-minutes`.
+Failed trades never increment the counters; `SELL` and `SELL_ALL` share
+a quota. The counters persist through a clean server restart.
+
+`currency-decimals` is configurable per listing (0–6), with purchases rounded
+up and sell payouts rounded down. `tax.buy-percent` and
+`tax.sell-percent` are optional checkout adjustments (money sinks).
+They **do not** deposit proceeds into a treasury account.
+
+`RECIPE` currently uses explicit referenced shop ingredients,
+`recipe.output-count`, `recipe.markup`, and `recipe.sell-ratio`.
+Vanilla recipe scanning, recipe stock dependencies, multi-recipe choice and
+derived dynamic ingredient market prices require further implementation.
+
+Only explicitly configured shops/items are intercepted by default.
+`pricing.manage-all-shops: true` intentionally enables interception for
+all ShopGUIPlus listings.
+
 The four optional bounds are `minimum-multiplier`, `maximum-multiplier`,
 `absolute-minimum`, and `absolute-maximum`. To remove a globally inherited cap
 set it to the string `unlimited` in a shop or item configuration. Omission from
@@ -89,9 +113,11 @@ bulk purchase/sale is quoted progressively against the evolving market. Trades
 update market data only on successful ShopGUIPlus post-transaction results.
 State is saved to `market-state.yml` after confirmed transactions.
 
-**Not complete:** real-runtime testing, transaction/recovery hardening, explicit
-currency precision rules, safe formula expression language, recipe/linked modes,
-multi-server persistence and optional VaultUnlocked-specific behaviour. The plugin
+**Not complete:** live ShopGUIPlus/Paper integration and exploit tests, transaction
+recovery under disk failures, automatic vanilla recipe discovery, inflation and
+treasury routing, transaction history, GUI synchronisation, cache/restock
+scheduling, MySQL storage, multi-server persistence, and specialised
+VaultUnlocked currency routing. The plugin
 lets ShopGUIPlus continue handling currencies; it does not implement its own economy.
 
 This is original implementation informed by the publicly documented behaviour of
