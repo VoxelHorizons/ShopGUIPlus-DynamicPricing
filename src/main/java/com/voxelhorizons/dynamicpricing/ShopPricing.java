@@ -4,7 +4,7 @@ import java.util.Objects;
 
 /** Immutable pricing policy selected per shop (or item override). */
 public record ShopPricing(Mode mode, PricingEngine.Parameters parameters) {
-    public enum Mode { STATIC, DYNAMIC, STOCK, STATIC_STOCK }
+    public enum Mode { STATIC, DYNAMIC, STOCK, STATIC_STOCK, RECIPE }
 
     public ShopPricing {
         Objects.requireNonNull(mode, "mode");
@@ -19,7 +19,7 @@ public record ShopPricing(Mode mode, PricingEngine.Parameters parameters) {
         if (quantity <= 0 || quantity > 100_000) throw new IllegalArgumentException("quantity");
         return switch (mode) {
             case DYNAMIC -> dynamicQuote(engine, parameters, state, side, quantity);
-            case STATIC -> fixedQuote(parameters, state, side, quantity);
+            case STATIC, RECIPE -> fixedQuote(parameters, state, side, quantity);
             case STATIC_STOCK -> fixedStockQuote(parameters, state, side, quantity);
             case STOCK -> engine.quote(stockOnly(parameters), state, side, quantity);
         };
