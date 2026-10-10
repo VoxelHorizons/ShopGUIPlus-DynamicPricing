@@ -68,6 +68,25 @@ class PricingEngineTest {
         assertEquals(300,q.total(),1e-9);
         assertEquals(0,q.after().stock(),1e-9);
     }
+    @Test void uncappedDemandMonotonicallyRaisesQuotes() {
+        var noCaps = new PricingEngine.Parameters(20,12,null,null,.002,.0015,0,1000,24,.15,null,null);
+        var dynamic = new ShopPricing(ShopPricing.Mode.DYNAMIC,noCaps);
+        var state = new PricingEngine.State(0,0);
+        double previous=0;
+        for(int batch=0;batch<20;batch++) {
+            var quote=dynamic.quote(engine,state,BUY,64);
+            assertTrue(quote.averageUnitPrice()>previous);
+            previous=quote.averageUnitPrice();
+            state=quote.after();
+        }
+        assertTrue(previous>20);
+    }
+    @Test void boundedAndUnboundedMarketsHaveDifferentCeilings() {
+        var capped=PricingEngine.Parameters.conservative(100);
+        var uncapped=new PricingEngine.Parameters(100,70,null,null,.002,.0015,.20,1000,24,.10,null,null);
+        var state=new PricingEngine.State(1000,1000);
+        assertTrue(engine.unitPrice(uncapped,state,BUY)>engine.unitPrice(capped,state,BUY));
+    }
     @Test void respectsLimitsAndRejectsInvalidParameters() {
         var high = new PricingEngine.State(1e8, 0);
         assertTrue(engine.unitPrice(p, high, BUY) <= 175 + 1e-8);
