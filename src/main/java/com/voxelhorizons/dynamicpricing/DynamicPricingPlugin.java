@@ -76,7 +76,8 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             return getConfig().getBoolean(itemPath + ".enabled");
         if (getConfig().contains(shopPath + ".enabled"))
             return getConfig().getBoolean(shopPath + ".enabled");
-        return getConfig().contains(itemPath + ".type") || getConfig().contains(shopPath + ".type");
+        return getConfig().isConfigurationSection(itemPath)
+                || getConfig().isConfigurationSection(shopPath);
     }
     /** Resolve LINK policies without allowing recursive references or cross-reference cycles. */
     private ShopItem resolveMarket(ShopItem source) {
