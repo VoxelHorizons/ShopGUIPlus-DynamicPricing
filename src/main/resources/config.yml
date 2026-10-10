@@ -72,3 +72,19 @@ shops: {}
 #             units: 128
 #             period-minutes: 1440
 # Values of 0 or absent mean no limit. Counters advance only after success.
+
+# Simple recipe-priced item example (shop:item references):
+# shops:
+#   tools:
+#     items:
+#       iron_pickaxe:
+#         type: RECIPE
+#         recipe:
+#           ingredients:
+#             "materials:iron_ingot": 3
+#             "materials:stick": 2
+#           output-count: 1
+#           markup: 1.25
+#           sell-ratio: 0.60
+# Ingredients currently reference ShopGUIPlus base buy prices, recursively
+# resolving RECIPE and LINK sources. Minecraft recipe auto-discovery is pending.
