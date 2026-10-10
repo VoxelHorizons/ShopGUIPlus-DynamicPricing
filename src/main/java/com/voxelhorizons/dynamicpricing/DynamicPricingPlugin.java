@@ -100,6 +100,46 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
         throw new IllegalArgumentException("Linked market chain exceeds 16 entries");
     }
 
+    private double recipeCost(ShopItem item, Set<String> visited, int depth) {
+        if (depth > 12 || !visited.add(id(item)))
+            throw new IllegalArgumentException("Recursive or excessively deep crafting recipe");
+        try {
+            String type=String.valueOf(setting(item,"type","STATIC"));
+            if (!"RECIPE".equalsIgnoreCase(type)) {
+                if ("LINK".equalsIgnoreCase(type)) return recipeCost(resolveMarket(item),visited,depth+1);
+                double price=number(item,"base-buy",item.getBuyPrice());
+                if (!Double.isFinite(price) || price<=0)
+                    throw new IllegalArgumentException("Ingredient has no buy price: "+id(item));
+                return price;
+            }
+            String path="shops."+item.getShop().getId()+".items."+item.getId()+".recipe.ingredients";
+            ConfigurationSection ingredients=getConfig().getConfigurationSection(path);
+            if (ingredients==null || ingredients.getKeys(false).isEmpty())
+                throw new IllegalArgumentException("Recipe ingredients missing: "+id(item));
+            double total=0;
+            for(String ref:ingredients.getKeys(false)) {
+                int sep=ref.indexOf(':');
+                if (sep <= 0 || sep == ref.length()-1)
+                    throw new IllegalArgumentException("Bad recipe ingredient: "+ref);
+                var shop=net.brcdev.shopgui.ShopGuiPlusApi.getShop(ref.substring(0,sep));
+                if(shop==null) throw new IllegalArgumentException("Recipe shop not found: "+ref);
+                ShopItem component=shop.getShopItem(ref.substring(sep+1));
+                if(component==null) throw new IllegalArgumentException("Recipe item not found: "+ref);
+                double count=ingredients.getDouble(ref);
+                if(!Double.isFinite(count) || count<=0 || count>1024)
+                    throw new IllegalArgumentException("Bad ingredient quantity: "+ref);
+                total+=recipeCost(component,visited,depth+1)*count;
+                if(!Double.isFinite(total)) throw new ArithmeticException("Recipe price overflow");
+            }
+            double yield=number(item,"recipe.output-count",1);
+            double markup=number(item,"recipe.markup",1.25);
+            if(!Double.isFinite(yield) || yield<=0 || !Double.isFinite(markup) || markup<=0)
+                throw new IllegalArgumentException("Invalid recipe output or markup");
+            double price=total*markup/yield;
+            if(!Double.isFinite(price) || price<=0) throw new ArithmeticException("Invalid recipe price");
+            return price;
+        } finally {visited.remove(id(item));}
+    }
     private ShopPricing policy(ShopItem item) {
         var type = ShopPricing.Mode.valueOf(String.valueOf(setting(item, "type", "DYNAMIC"))
                 .toUpperCase(Locale.ROOT));
@@ -108,6 +148,13 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
         double originalBuy = item.getBuyPrice(), originalSell = item.getSellPrice();
         double buy = number(item,"base-buy",originalBuy > 0 ? originalBuy : Math.max(.01, originalSell / .7));
         double sell = number(item,"base-sell",originalSell > 0 ? originalSell : Math.max(.01, buy * .7));
+        if(type == ShopPricing.Mode.RECIPE) {
+            buy=recipeCost(item,new HashSet<>(),0);
+            double ratio=number(item,"recipe.sell-ratio",0.60);
+            if(!Double.isFinite(ratio) || ratio<=0 || ratio>1)
+                throw new IllegalArgumentException("recipe.sell-ratio must be in (0,1]");
+            sell=buy*ratio;
+        }
         var params = new PricingEngine.Parameters(buy, sell,
             optional(item,"minimum-multiplier",null), optional(item,"maximum-multiplier",null),
             number(item,"buy-impact-per-item",.002), number(item,"sell-impact-per-item",.0015),
