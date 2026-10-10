@@ -1,0 +1,25 @@
+# Specification/example only. Config loading and ShopGUIPlus bridge will follow.
+# Values are conservative STARTING POINTS, not empirically optimal for every server.
+pricing:
+  mode: progressive # progressive is the only implemented core quoting mode
+  rounding: aggregate # apply currency rounding once to complete trade in adapter
+  defaults:
+    minimum-multiplier: 0.65
+    maximum-multiplier: 1.75
+    buy-impact-per-item: 0.002
+    sell-impact-per-item: 0.0015
+    stock-sensitivity: 0.20
+    stock-target: 1000
+    recovery-half-life-hours: 24
+    minimum-spread: 0.10
+    absolute-minimum: 0.01
+    absolute-maximum: 1000000
+    # base-buy and base-sell will be sourced from ShopGUIPlus; fallback sell = 70% of buy
+  # Future layers, NOT YET IMPLEMENTED:
+  # shops:
+  #   blocks:
+  #     items:
+  #       diamond:
+  #         buy-impact-per-item: 0.004
+  # currencies: # Via VaultUnlocked once API integration is verified
+  # formulas: # Safe parsed expressions using a whitelist, never arbitrary code execution
