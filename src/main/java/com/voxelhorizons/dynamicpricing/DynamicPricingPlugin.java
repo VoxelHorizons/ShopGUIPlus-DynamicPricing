@@ -23,15 +23,21 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
     private record Market(PricingEngine.State state, long time) {}
     private record Pending(String key, int amount, String action, double price, PricingEngine.State resulting) {}
     private File file;
+    private DynamicPricingPlaceholders expansion;
     @Override public void onEnable() {
         saveDefaultConfig();
         file = new File(getDataFolder(), "market-state.yml");
         loadMarket();
         getServer().getPluginManager().registerEvents(this, this);
         Objects.requireNonNull(getCommand("dynamicpricing")).setExecutor(this);
+        if (getServer().getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+            expansion = new DynamicPricingPlaceholders(this);
+            if (!expansion.register()) getLogger().warning("PlaceholderAPI expansion failed to register");
+        }
     }
     @Override public void onDisable() {
         pending.clear();
+        if (expansion != null) expansion.unregister();
         try { saveMarket(); } catch(IOException ex) { getLogger().log(Level.SEVERE, "Save failed", ex); }
     }
     private static String id(ShopItem item) { return item.getShop().getId() + ":" + item.getId(); }
@@ -134,6 +140,49 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
         try { saveMarket(); }
         catch(IOException ex) { getLogger().log(Level.SEVERE,"Failed to persist completed trade",ex); }
     }
+    /** Read-only preview for PlaceholderAPI; a quote never mutates or persists market state. */
+    public String preview(String key, String field, int count) {
+        try {
+            if (count <= 0 || count > getConfig().getInt("pricing.max-transaction-quantity",4096))
+                return null;
+            int separator = key.indexOf(':');
+            if (separator <= 0 || separator == key.length()-1) return null;
+            var shop = net.brcdev.shopgui.ShopGuiPlusApi.getShop(key.substring(0,separator));
+            if (shop == null) return null;
+            ShopItem item = shop.getShopItem(key.substring(separator+1));
+            if (item == null) return null;
+            var policy = policy(item);
+            var params = policy.parameters();
+            var original = markets.getOrDefault(id(item),
+                    new Market(new PricingEngine.State(0,params.stockTarget()),System.currentTimeMillis()));
+            var state = calculator.recover(original.state(),params,
+                    Math.max(0,System.currentTimeMillis()-original.time())/3600000.0);
+            if ("stock".equals(field)) return String.format(Locale.ROOT,"%.0f",state.stock());
+            if ("demand".equals(field)) return String.format(Locale.ROOT,"%.2f",state.netDemand());
+            PricingEngine.Side side = "buy".equals(field) ? PricingEngine.Side.BUY :
+                    "sell".equals(field) ? PricingEngine.Side.SELL : null;
+            if (side == null) return null;
+            if (side == PricingEngine.Side.BUY && item.getBuyPrice() <= 0) return "unavailable";
+            if (side == PricingEngine.Side.SELL && item.getSellPrice() <= 0) return "unavailable";
+            String buyFormula=String.valueOf(setting(item,"buy-formula",""));
+            String sellFormula=String.valueOf(setting(item,"sell-formula",""));
+            PricingEngine.Quote quoted;
+            if (!buyFormula.isBlank() || !sellFormula.isBlank()) {
+                if (buyFormula.isBlank() || sellFormula.isBlank()) return null;
+                String formulaKey=buyFormula+"\\n"+sellFormula;
+                FormulaPricing formula=formulas.computeIfAbsent(formulaKey,
+                        k->new FormulaPricing(buyFormula,sellFormula));
+                quoted=formula.quote(params,state,policy.mode(),side,count);
+            } else {
+                quoted=policy.quote(calculator,state,side,count);
+            }
+            if (!Double.isFinite(quoted.total()) || quoted.total() <= 0) return "unavailable";
+            return String.format(Locale.ROOT,"%.2f",quoted.total());
+        } catch (RuntimeException e) {
+            return "unavailable";
+        }
+    }
+
     private void loadMarket() {
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
         ConfigurationSection entries = yaml.getConfigurationSection("markets");
