@@ -80,6 +80,10 @@ public final class PricingEngine {
         double exponent = demandImpact + stockImpact;
         // Explicitly reject unrepresentable prices. Do not silently impose a hidden cap.
         if (!Double.isFinite(exponent)) throw new ArithmeticException("Non-finite market exponent");
+        // Respect explicitly configured exponential bounds before Math.exp can overflow.
+        if (p.maximumMultiplier() != null) exponent = Math.min(exponent, Math.log(p.maximumMultiplier()));
+        if (p.minimumMultiplier() != null && p.minimumMultiplier() > 0)
+            exponent = Math.max(exponent, Math.log(p.minimumMultiplier()));
         double multiplier = Math.exp(exponent);
         if (!Double.isFinite(multiplier)) throw new ArithmeticException("Market price exceeds numeric range");
         if (p.minimumMultiplier() != null) multiplier = Math.max(multiplier, p.minimumMultiplier());
