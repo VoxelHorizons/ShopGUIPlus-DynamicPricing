@@ -239,7 +239,7 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
     }
 
     private String limitKey(UUID player, ShopItem item, String action) {
-        return player.toString() + "|" + id(item) + "|" + action;
+        return player.toString() + "|" + id(item) + "|" + (action.equals("BUY") ? "BUY" : "SELL");
     }
 
     private void checkTradeLimit(ShopItem item, UUID player, String action, int amount) {
