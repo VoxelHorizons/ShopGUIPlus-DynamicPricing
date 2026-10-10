@@ -49,3 +49,12 @@ shops: {}
 #         buy-impact-per-item: 0.004
 #
 # Configured bounds still apply to formula results. Minimum spread is enforced.
+
+# Linked-market example: these two shop entries share one demand/stock record.
+# shops:
+#   specialty:
+#     items:
+#       diamond:
+#         type: LINK
+#         link: ores:diamond
+# LINK chains are allowed, but missing targets and reference cycles reject trades.
