@@ -3,6 +3,7 @@ version: 0.2.0
 main: com.voxelhorizons.dynamicpricing.DynamicPricingPlugin
 api-version: '1.19'
 depend: [ShopGUIPlus]
+softdepend: [PlaceholderAPI]
 commands:
   dynamicpricing:
     aliases: [dpricing]
