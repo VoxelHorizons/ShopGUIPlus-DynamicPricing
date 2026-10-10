@@ -23,7 +23,7 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
     private final Map<String, FormulaPricing> formulas = new HashMap<>();
     private final Map<UUID, Pending> pending = new HashMap<>();
     private record Market(PricingEngine.State state, long time) {}
-    private record Pending(String key, int amount, String action, double price, double tolerance,
+    private record Pending(String sourceKey, String marketKey, int amount, String action, double price, double tolerance,
                            PricingEngine.State resulting) {}
     private File file;
     private DynamicPricingPlaceholders expansion;
@@ -75,6 +75,28 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             return getConfig().getBoolean(shopPath + ".enabled");
         return getConfig().contains(itemPath + ".type") || getConfig().contains(shopPath + ".type");
     }
+    /** Resolve LINK policies without allowing recursive references or cross-reference cycles. */
+    private ShopItem resolveMarket(ShopItem source) {
+        ShopItem current = source;
+        Set<String> visited = new HashSet<>();
+        for (int depth = 0; depth < 16; depth++) {
+            if (!visited.add(id(current))) throw new IllegalArgumentException("Cyclic linked market: " + id(current));
+            String mode = String.valueOf(setting(current,"type","DYNAMIC"));
+            if (!"LINK".equalsIgnoreCase(mode)) return current;
+            Object raw = setting(current,"link","");
+            String ref = String.valueOf(raw);
+            int separator = ref.indexOf(':');
+            if (separator <= 0 || separator == ref.length()-1)
+                throw new IllegalArgumentException("Invalid linked market target: " + ref);
+            var shop = net.brcdev.shopgui.ShopGuiPlusApi.getShop(ref.substring(0,separator));
+            if (shop == null) throw new IllegalArgumentException("Linked shop not found: " + ref);
+            ShopItem item = shop.getShopItem(ref.substring(separator+1));
+            if (item == null) throw new IllegalArgumentException("Linked item not found: " + ref);
+            current = item;
+        }
+        throw new IllegalArgumentException("Linked market chain exceeds 16 entries");
+    }
+
     private ShopPricing policy(ShopItem item) {
         var type = ShopPricing.Mode.valueOf(String.valueOf(setting(item, "type", "DYNAMIC"))
                 .toUpperCase(Locale.ROOT));
@@ -101,8 +123,10 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
         if (event.getShopAction().name().equals("BUY") && item.getBuyPrice() <= 0) return;
         if (!event.getShopAction().name().equals("BUY") && item.getSellPrice() <= 0) return;
         try {
-            String key = id(item);
-            ShopPricing policy = policy(item);
+            String sourceKey = id(item);
+            ShopItem marketItem = resolveMarket(item);
+            String key = id(marketItem);
+            ShopPricing policy = policy(marketItem);
             PricingEngine.Parameters params = policy.parameters();
             var current = markets.getOrDefault(key,
                     new Market(new PricingEngine.State(0,params.stockTarget()),System.currentTimeMillis()));
@@ -113,8 +137,8 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             int maximum = getConfig().getInt("pricing.max-transaction-quantity",4096);
             if (event.getAmount() <= 0 || maximum <= 0 || event.getAmount() > maximum)
                 throw new IllegalArgumentException("Trade quantity exceeds configured limit");
-            String buyFormula = String.valueOf(setting(item,"buy-formula",""));
-            String sellFormula = String.valueOf(setting(item,"sell-formula",""));
+            String buyFormula = String.valueOf(setting(marketItem,"buy-formula",""));
+            String sellFormula = String.valueOf(setting(marketItem,"sell-formula",""));
             PricingEngine.Quote quote;
             if (!buyFormula.isBlank() || !sellFormula.isBlank()) {
                 if (buyFormula.isBlank() || sellFormula.isBlank())
@@ -134,7 +158,7 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             if (price <= 0) throw new ArithmeticException("Dynamic price rounds to zero");
             event.setPrice(price);
             // Commit the recovered market state on success, not on price preview.
-            pending.put(player,new Pending(key,event.getAmount(),event.getShopAction().name(),
+            pending.put(player,new Pending(sourceKey,key,event.getAmount(),event.getShopAction().name(),
                     price,Math.pow(10,-decimals)/100.0,quote.after()));
         } catch (RuntimeException ex) {
             event.setCancelled(true); // Fail closed rather than allow zero-price transactions.
@@ -147,11 +171,11 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
         if (result == null || result.getPlayer() == null) return;
         Pending candidate = pending.remove(result.getPlayer().getUniqueId());
         if (candidate == null || result.getResult() != ShopTransactionResult.ShopTransactionResultType.SUCCESS
-                || result.getShopItem() == null || !candidate.key().equals(id(result.getShopItem()))
+                || result.getShopItem() == null || !candidate.sourceKey().equals(id(result.getShopItem()))
                 || candidate.amount()!=result.getAmount()
                 || !candidate.action().equals(result.getShopAction().name())
                 || Math.abs(candidate.price()-result.getPrice()) > candidate.tolerance()) return;
-        markets.put(candidate.key(),new Market(candidate.resulting(),System.currentTimeMillis()));
+        markets.put(candidate.marketKey(),new Market(candidate.resulting(),System.currentTimeMillis()));
         try { saveMarket(); }
         catch(IOException ex) { getLogger().log(Level.SEVERE,"Failed to persist completed trade",ex); }
     }
@@ -166,9 +190,10 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             if (shop == null) return null;
             ShopItem item = shop.getShopItem(key.substring(separator+1));
             if (item == null || !managed(item)) return null;
-            var policy = policy(item);
+            ShopItem marketItem = resolveMarket(item);
+            var policy = policy(marketItem);
             var params = policy.parameters();
-            var original = markets.getOrDefault(id(item),
+            var original = markets.getOrDefault(id(marketItem),
                     new Market(new PricingEngine.State(0,params.stockTarget()),System.currentTimeMillis()));
             var state = calculator.recover(original.state(),params,
                     Math.max(0,System.currentTimeMillis()-original.time())/3600000.0);
@@ -179,8 +204,8 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             if (side == null) return null;
             if (side == PricingEngine.Side.BUY && item.getBuyPrice() <= 0) return "unavailable";
             if (side == PricingEngine.Side.SELL && item.getSellPrice() <= 0) return "unavailable";
-            String buyFormula=String.valueOf(setting(item,"buy-formula",""));
-            String sellFormula=String.valueOf(setting(item,"sell-formula",""));
+            String buyFormula=String.valueOf(setting(marketItem,"buy-formula",""));
+            String sellFormula=String.valueOf(setting(marketItem,"sell-formula",""));
             PricingEngine.Quote quoted;
             if (!buyFormula.isBlank() || !sellFormula.isBlank()) {
                 if (buyFormula.isBlank() || sellFormula.isBlank()) return null;
