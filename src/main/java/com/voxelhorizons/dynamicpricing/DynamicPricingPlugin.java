@@ -18,6 +18,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class DynamicPricingPlugin extends JavaPlugin implements Listener, CommandExecutor {
     private final PricingEngine calculator = new PricingEngine();
     private final Map<String, Market> markets = new HashMap<>();
+    private final Map<String, FormulaPricing> formulas = new HashMap<>();
     private final Map<UUID, Pending> pending = new HashMap<>();
     private record Market(PricingEngine.State state, long time) {}
     private record Pending(String key, int amount, String action, double price, PricingEngine.State resulting) {}
@@ -93,7 +94,19 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             int maximum = getConfig().getInt("pricing.max-transaction-quantity",4096);
             if (event.getAmount() <= 0 || maximum <= 0 || event.getAmount() > maximum)
                 throw new IllegalArgumentException("Trade quantity exceeds configured limit");
-            var quote = policy.quote(calculator,recovered,side,event.getAmount());
+            String buyFormula = String.valueOf(setting(item,"buy-formula",""));
+            String sellFormula = String.valueOf(setting(item,"sell-formula",""));
+            PricingEngine.Quote quote;
+            if (!buyFormula.isBlank() || !sellFormula.isBlank()) {
+                if (buyFormula.isBlank() || sellFormula.isBlank())
+                    throw new IllegalArgumentException("Both buy-formula and sell-formula are required");
+                String formulaKey = buyFormula + "\\n" + sellFormula;
+                FormulaPricing custom = formulas.computeIfAbsent(formulaKey,
+                        k -> new FormulaPricing(buyFormula,sellFormula));
+                quote = custom.quote(params,recovered,policy.mode(),side,event.getAmount());
+            } else {
+                quote = policy.quote(calculator,recovered,side,event.getAmount());
+            }
             if (!Double.isFinite(quote.total()) || quote.total() <= 0 || quote.total() > 9.0e15)
                 throw new ArithmeticException("Price cannot be represented safely");
             double price = Math.round(quote.total()*100.0)/100.0;
@@ -151,7 +164,7 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
     @Override public boolean onCommand(CommandSender sender,Command command,String label,String[] args) {
         if(!sender.hasPermission("dynamicpricing.admin")) return true;
         if(args.length == 1 && args[0].equalsIgnoreCase("reload")) {
-            reloadConfig(); pending.clear(); sender.sendMessage("DynamicPricing reloaded."); return true;
+            reloadConfig(); pending.clear(); formulas.clear(); sender.sendMessage("DynamicPricing reloaded."); return true;
         }
         if(args.length == 1 && args[0].equalsIgnoreCase("save")) {
             try { saveMarket(); sender.sendMessage("State saved."); }
