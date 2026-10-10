@@ -2,6 +2,8 @@ package com.voxelhorizons.dynamicpricing;
 
 import java.io.File;
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.file.*;
 import java.util.*;
 import java.util.logging.Level;
@@ -21,7 +23,8 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
     private final Map<String, FormulaPricing> formulas = new HashMap<>();
     private final Map<UUID, Pending> pending = new HashMap<>();
     private record Market(PricingEngine.State state, long time) {}
-    private record Pending(String key, int amount, String action, double price, PricingEngine.State resulting) {}
+    private record Pending(String key, int amount, String action, double price, double tolerance,
+                           PricingEngine.State resulting) {}
     private File file;
     private DynamicPricingPlaceholders expansion;
     @Override public void onEnable() {
@@ -125,12 +128,14 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             }
             if (!Double.isFinite(quote.total()) || quote.total() <= 0 || quote.total() > 9.0e15)
                 throw new ArithmeticException("Price cannot be represented safely");
-            double price = Math.round(quote.total()*100.0)/100.0;
-            if (price < .01) throw new ArithmeticException("Dynamic price rounds below one currency cent");
+            int decimals = (int) number(item, "currency-decimals", 2);
+            if (decimals < 0 || decimals > 6) throw new IllegalArgumentException("Currency decimals must be 0..6");
+            double price = roundTotal(quote.total(), side, decimals);
+            if (price <= 0) throw new ArithmeticException("Dynamic price rounds to zero");
             event.setPrice(price);
             // Commit the recovered market state on success, not on price preview.
             pending.put(player,new Pending(key,event.getAmount(),event.getShopAction().name(),
-                    price,quote.after()));
+                    price,Math.pow(10,-decimals)/100.0,quote.after()));
         } catch (RuntimeException ex) {
             event.setCancelled(true); // Fail closed rather than allow zero-price transactions.
             getLogger().warning("Blocked transaction for " + id(item) + ": " + ex.getMessage());
@@ -145,7 +150,7 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
                 || result.getShopItem() == null || !candidate.key().equals(id(result.getShopItem()))
                 || candidate.amount()!=result.getAmount()
                 || !candidate.action().equals(result.getShopAction().name())
-                || Math.abs(candidate.price()-result.getPrice()) > .011) return;
+                || Math.abs(candidate.price()-result.getPrice()) > candidate.tolerance()) return;
         markets.put(candidate.key(),new Market(candidate.resulting(),System.currentTimeMillis()));
         try { saveMarket(); }
         catch(IOException ex) { getLogger().log(Level.SEVERE,"Failed to persist completed trade",ex); }
@@ -187,10 +192,19 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
                 quoted=policy.quote(calculator,state,side,count);
             }
             if (!Double.isFinite(quoted.total()) || quoted.total() <= 0) return "unavailable";
-            return String.format(Locale.ROOT,"%.2f",quoted.total());
+            int decimals = (int) number(item,"currency-decimals",2);
+            if (decimals < 0 || decimals > 6) return null;
+            double rounded = roundTotal(quoted.total(),side,decimals);
+            return String.format(Locale.ROOT,"%."+decimals+"f",rounded);
         } catch (RuntimeException e) {
             return "unavailable";
         }
+    }
+
+    private static double roundTotal(double total, PricingEngine.Side side, int decimals) {
+        if (!Double.isFinite(total) || total <= 0) throw new ArithmeticException("Invalid price");
+        return BigDecimal.valueOf(total).setScale(decimals,
+                side == PricingEngine.Side.BUY ? RoundingMode.CEILING : RoundingMode.DOWN).doubleValue();
     }
 
     private void loadMarket() {
