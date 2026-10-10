@@ -406,7 +406,20 @@ public final class DynamicPricingPlugin extends JavaPlugin implements Listener, 
             catch(IOException ex) { sender.sendMessage("Save failed. Check server log."); }
             return true;
         }
-        sender.sendMessage("/dynamicpricing <reload|save>");
+        if (args.length >= 2 && args[0].equalsIgnoreCase("price")) {
+            int amount=1;
+            if(args.length > 2) {
+                try { amount=Integer.parseInt(args[2]); }
+                catch(NumberFormatException ex) {sender.sendMessage("Invalid quantity.");return true;}
+            }
+            String buy=preview(args[1],"buy",amount),sell=preview(args[1],"sell",amount);
+            if(buy==null || sell==null) sender.sendMessage("Unknown or unmanaged shop item.");
+            else sender.sendMessage(args[1]+" x"+amount+" | buy="+buy+" | sell="+sell
+                    +" | stock="+preview(args[1],"stock",1)
+                    +" | demand="+preview(args[1],"demand",1));
+            return true;
+        }
+        sender.sendMessage("/dynamicpricing <reload|save|price shop:item [quantity]>");
         return true;
     }
 }
