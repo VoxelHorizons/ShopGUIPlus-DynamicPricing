@@ -4,6 +4,9 @@ pricing:
   max-transaction-quantity: 4096
   defaults:
     type: DYNAMIC
+    tax:
+      buy-percent: 0
+      sell-percent: 0
     currency-decimals: 2 # BUY rounds up, SELL rounds down; override per shop/item
     minimum-multiplier: 0.65
     maximum-multiplier: 1.75
@@ -88,3 +91,6 @@ shops: {}
 #           sell-ratio: 0.60
 # Ingredients currently reference ShopGUIPlus base buy prices, recursively
 # resolving RECIPE and LINK sources. Minecraft recipe auto-discovery is pending.
+
+# Tax settings are price surcharges/haircuts (money sinks), not transfers
+# to a treasury account. Treasury routing needs a real wallet integration.
