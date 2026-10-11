@@ -1,25 +1,33 @@
-# Specification/example only. Config loading and ShopGUIPlus bridge will follow.
-# Values are conservative STARTING POINTS, not empirically optimal for every server.
+# Design specification. ShopGUIPlus adapter and YAML loader are not implemented yet.
+# Shops choose their own pricing type; items may override their shop.
 pricing:
-  mode: progressive # progressive is the only implemented core quoting mode
-  rounding: aggregate # apply currency rounding once to complete trade in adapter
   defaults:
-    minimum-multiplier: 0.65
-    maximum-multiplier: 1.75
+    type: DYNAMIC # STATIC, DYNAMIC, STOCK
+    minimum-multiplier: 0.65 # optional; omit or set null for no floor
+    maximum-multiplier: 1.75 # optional; omit or set null for unlimited growth
     buy-impact-per-item: 0.002
     sell-impact-per-item: 0.0015
     stock-sensitivity: 0.20
     stock-target: 1000
     recovery-half-life-hours: 24
     minimum-spread: 0.10
-    absolute-minimum: 0.01
-    absolute-maximum: 1000000
-    # base-buy and base-sell will be sourced from ShopGUIPlus; fallback sell = 70% of buy
-  # Future layers, NOT YET IMPLEMENTED:
-  # shops:
-  #   blocks:
-  #     items:
-  #       diamond:
-  #         buy-impact-per-item: 0.004
-  # currencies: # Via VaultUnlocked once API integration is verified
-  # formulas: # Safe parsed expressions using a whitelist, never arbitrary code execution
+    absolute-minimum: 0.01 # optional
+    absolute-maximum: 1000000 # optional; omit or set null to uncap
+
+shops:
+  building_blocks:
+    type: STOCK
+  supplies:
+    type: STATIC
+  rare_resources:
+    type: DYNAMIC
+    maximum-multiplier: null
+    absolute-maximum: null
+    items:
+      diamond:
+        buy-impact-per-item: 0.004
+      netherite_ingot:
+        type: STATIC
+
+# No caps means no configurable economic ceiling, NOT infinite precision:
+# arithmetic overflow fails closed rather than granting free/incorrect trades.

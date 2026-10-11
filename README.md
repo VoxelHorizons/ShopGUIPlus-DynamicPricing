@@ -35,3 +35,21 @@ The default spread is at least 10% and base sell is 70% of base buy in the conve
 ## Reference
 
 Architecture and feature inspiration: [ShopGUIPlus-DynaShop](https://github.com/Tylwen/ShopGUIPlus-DynaShop) (AGPL-3.0). This repository uses an independently written pricing engine; no DynaShop source files have been copied.
+
+## Shop-specific pricing modes and optional bounds
+
+The core supports per-shop policies selected by `ShopPricing.Mode`: `STATIC` (fixed
+buy/sell prices), `DYNAMIC` (demand plus stock impact) and `STOCK` (stock-only
+pricing). An item-specific policy can override its parent shop; wiring up YAML
+inheritance and ShopGUIPlus registration remains follow-up integration work.
+
+All four bounds in `PricingEngine.Parameters` (minimum/maximum multiplier and
+absolute minimum/maximum price) are nullable. `null` means **no configured bound**.
+In particular omitting both maximum fields permits exponential price growth.
+The default policy retains conservative caps until explicitly overridden.
+No hidden clamp is used to cap the exponent. If price calculations exceed the
+representable numeric range, they fail safely with `ArithmeticException`, rather
+than silently producing infinite or invalid prices. Money arithmetic should
+eventually use decimal-safe amounts at the economy-adapter boundary.
+
+See `config.example.yml` for *proposed* per-shop and per-item YAML shape.
