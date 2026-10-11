@@ -1,0 +1,106 @@
+pricing:
+  # Only explicitly configured shops/items are managed unless enabled here.
+  manage-all-shops: false
+  max-transaction-quantity: 4096
+  defaults:
+    type: DYNAMIC
+    tax:
+      buy-percent: 0
+      sell-percent: 0
+    currency-decimals: 2 # BUY rounds up, SELL rounds down; override per shop/item
+    minimum-multiplier: 0.65
+    maximum-multiplier: 1.75
+    buy-impact-per-item: 0.002
+    sell-impact-per-item: 0.0015
+    stock-sensitivity: 0.20
+    stock-target: 1000
+    recovery-half-life-hours: 24
+    minimum-spread: 0.10
+    absolute-minimum: 0.01
+    absolute-maximum: 1000000
+shops: {}
+
+# Shop-specific and item-specific overrides:
+# shops:
+#   building:
+#     type: STATIC_STOCK
+#     stock-target: 250
+#   rare:
+#     type: DYNAMIC
+#     maximum-multiplier: unlimited # Use "unlimited", not YAML null, to override global caps
+#     absolute-maximum: unlimited
+#     items:
+#       diamond:
+#         buy-impact-per-item: 0.005
+# Omitting a bound from the global defaults means no bound. Omitting at shop/item
+# level inherits the nearest parent; "unlimited" explicitly disables the inherited bound.
+
+# Optional custom equations (both are required when one is specified).
+# You may use +, -, *, /, ^ and min/max/pow/exp/ln/sqrt/abs/clamp.
+# Available variables: baseBuy, baseSell, demand, stock, target,
+# buyImpact, sellImpact, stockSensitivity, stockRatio, quantity, unitIndex, side.
+#
+# shops:
+#   rare_resources:
+#     type: DYNAMIC
+#     maximum-multiplier: unlimited
+#     absolute-maximum: unlimited
+#     buy-formula: "baseBuy * exp(demand * buyImpact)"
+#     sell-formula: "baseSell * exp(demand * sellImpact)"
+#     items:
+#       diamond:
+#         buy-impact-per-item: 0.004
+#
+# Configured bounds still apply to formula results. Minimum spread is enforced.
+
+# Linked-market example: these two shop entries share one demand/stock record.
+# shops:
+#   specialty:
+#     items:
+#       diamond:
+#         type: LINK
+#         link: ores:diamond
+# LINK chains are allowed, but missing targets and reference cycles reject trades.
+
+# Optional per-player rolling transaction limits:
+# shops:
+#   rare_resources:
+#     items:
+#       diamond:
+#         limits:
+#           buy:
+#             units: 64
+#             period-minutes: 1440
+#           sell:
+#             units: 128
+#             period-minutes: 1440
+# Values of 0 or absent mean no limit. Counters advance only after success.
+
+# Simple recipe-priced item example (shop:item references):
+# shops:
+#   tools:
+#     items:
+#       iron_pickaxe:
+#         type: RECIPE
+#         recipe:
+#           ingredients:
+#             "materials:iron_ingot": 3
+#             "materials:stick": 2
+#           output-count: 1
+#           markup: 1.25
+#           sell-ratio: 0.60
+# Ingredients currently reference ShopGUIPlus base buy prices, recursively
+# resolving RECIPE and LINK sources. Minecraft recipe auto-discovery is pending.
+
+# Tax settings are price surcharges/haircuts (money sinks), not transfers
+# to a treasury account. Treasury routing needs a real wallet integration.
+
+# Finite-stock replenishment (STOCK and STATIC_STOCK only):
+# shops:
+#   minerals:
+#     type: STOCK
+#     stock-target: 1000
+#     stock-initial: 500
+#     stock-restock-per-hour: 25
+#     stock-max: 2000
+# stock-max: unlimited means no inventory ceiling (independent of price caps).

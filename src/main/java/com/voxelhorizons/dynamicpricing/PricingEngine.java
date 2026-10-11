@@ -48,7 +48,7 @@ public final class PricingEngine {
         }
         public static Parameters conservative(double buyPrice) {
             return new Parameters(buyPrice, buyPrice * 0.70, 0.65, 1.75,
-                    0.002, 0.0015, 0.20, 1000, 24, 0.10, 0.01, 1_000_000);
+                    0.002, 0.0015, 0.20, 1000, 24, 0.10, 0.01, 1_000_000.0);
         }
     }
 
@@ -80,6 +80,10 @@ public final class PricingEngine {
         double exponent = demandImpact + stockImpact;
         // Explicitly reject unrepresentable prices. Do not silently impose a hidden cap.
         if (!Double.isFinite(exponent)) throw new ArithmeticException("Non-finite market exponent");
+        // Respect explicitly configured exponential bounds before Math.exp can overflow.
+        if (p.maximumMultiplier() != null) exponent = Math.min(exponent, Math.log(p.maximumMultiplier()));
+        if (p.minimumMultiplier() != null && p.minimumMultiplier() > 0)
+            exponent = Math.max(exponent, Math.log(p.minimumMultiplier()));
         double multiplier = Math.exp(exponent);
         if (!Double.isFinite(multiplier)) throw new ArithmeticException("Market price exceeds numeric range");
         if (p.minimumMultiplier() != null) multiplier = Math.max(multiplier, p.minimumMultiplier());

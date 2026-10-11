@@ -1,55 +1,124 @@
 # ShopGUIPlus DynamicPricing
 
-Independent, configurable dynamic pricing foundation for VoxelHorizons.
+Configurable market pricing plugin for ShopGUIPlus.
 
-**Status: initial pricing-engine foundation only. Not a deployable Bukkit plugin yet.**
-The present Maven module deliberately has no runtime dependency on Bukkit or ShopGUIPlus.
-Run `mvn test` with JDK 17+.
+## Current status
+
+**Pre-release integration build — do not deploy to a live economy without staging tests.**
+The Maven CI builds a plugin jar using the published ShopGUIPlus **API stub source**;
+that confirms compilation, not compatibility with a specific proprietary runtime JAR.
+
+### Supported market types
+
+- `STATIC`: fixed prices, unlimited inventory, no tracked demand.
+- `DYNAMIC`: demand-dependent price growth/decay, without finite stock.
+- `STOCK`: prices depend on finite stock.
+- `STATIC_STOCK`: fixed prices with finite stock.
+- `RECIPE`: derives base prices from configured ingredient shop listings.
+- `LINK`: uses another shop listing as a shared market (configured in the YAML, resolved before pricing).
+
+Global policy is set at `pricing.defaults`; overrides under `shops.<shopId>`
+and `shops.<shopId>.items.<itemId>`. Each configured field inherits the nearest
+parent value unless explicitly set. Default base prices come from ShopGUIPlus.
+Sell-only / buy-only listings retain their restrictions.
+
+### Custom pricing equations
+
+Optional `buy-formula` and `sell-formula` settings override the built-in price
+equations for a shop or individual item. Both must be provided. The formulas are
+compiled with a restricted expression parser (not JavaScript), supporting
+`+`, `-`, `*`, `/`, `^` and functions `min`, `max`, `pow`, `exp`, `ln`,
+`sqrt`, `abs`, `clamp`. Variables include `baseBuy`, `baseSell`, `demand`,
+`stock`, `target`, `buyImpact`, `sellImpact`, `stockSensitivity`,
+`stockRatio`, `quantity`, `unitIndex`, and `side`.
+Pricing limits and the minimum buy/sell spread still apply.
+
+```yaml
+shops:
+  ores:
+    type: DYNAMIC
+    maximum-multiplier: unlimited
+    absolute-maximum: unlimited
+    buy-formula: "baseBuy * exp(demand * buyImpact)"
+    sell-formula: "baseSell * exp(demand * sellImpact)"
+```
+
+### Price previews through PlaceholderAPI
+
+When PlaceholderAPI is installed, the plugin registers an internal expansion:
+`%dynamicpricing_buy_ores:diamond%`,
+`%dynamicpricing_sell_ores:diamond#64%`,
+`%dynamicpricing_stock_ores:diamond%` and
+`%dynamicpricing_demand_ores:diamond%`.
+These are read-only quote previews, not trade commits.
+Support for these placeholders in ShopGUIPlus's built-in lore is dependent on
+that plugin's PlaceholderAPI handling; staging validation is required.
+
+### Transaction controls
+
+Per-player buy/sell unit limits are available at shop or item scope:
+`limits.buy.units`, `limits.buy.period-minutes`,
+`limits.sell.units` and `limits.sell.period-minutes`.
+Failed trades never increment the counters; `SELL` and `SELL_ALL` share
+a quota. The counters persist through a clean server restart.
+
+`currency-decimals` is configurable per listing (0–6), with purchases rounded
+up and sell payouts rounded down. `tax.buy-percent` and
+`tax.sell-percent` are optional checkout adjustments (money sinks).
+They **do not** deposit proceeds into a treasury account.
+
+`RECIPE` currently uses explicit referenced shop ingredients,
+`recipe.output-count`, `recipe.markup`, and `recipe.sell-ratio`.
+Vanilla recipe scanning, recipe stock dependencies, multi-recipe choice and
+derived dynamic ingredient market prices require further implementation.
+
+Only explicitly configured shops/items are intercepted by default.
+`pricing.manage-all-shops: true` intentionally enables interception for
+all ShopGUIPlus listings.
+
+The four optional bounds are `minimum-multiplier`, `maximum-multiplier`,
+`absolute-minimum`, and `absolute-maximum`. To remove a globally inherited cap
+set it to the string `unlimited` in a shop or item configuration. Omission from
+global defaults leaves that bound unset. The *shipped* defaults are deliberately
+conservative. Unbounded prices fail closed upon numeric overflow and at the safe
+transaction amount limit; "unbounded" is not unlimited floating-point precision.
+
+### Running in staging
+
+1. Install ShopGUIPlus in a test Paper server.
+2. Download the `DynamicPricing-plugin` JAR from a successful GitHub Actions run.
+3. Put the JAR in `plugins/`, restart, and configure `plugins/DynamicPricing/config.yml`.
+4. Configure one small stock-controlled shop, one uncapped dynamic shop, and one fixed shop.
+5. Check BUY, SELL, SELL_ALL, large batches, insufficient stock, modified prices,
+   cancelled purchases, full inventory, saving/restart, and disabled shop directions.
+6. Compare displayed prices to charged amounts. ShopGUIPlus price preview and
+   transaction price must agree before this can be considered production-ready.
+
+The `pricing.max-transaction-quantity` setting limits expensive progressive
+trade simulations (default 4096). The numeric currency precision of the
+current runtime bridge is fixed at two decimal places; other economy precisions
+require further adapter work.
+
+Admin commands: `/dynamicpricing reload` and `/dynamicpricing save`;
+permission `dynamicpricing.admin` (default OP).
 
 ## Model
 
-For net demand `D`, stock `S`, stock target `T`, buy coefficient `a`, sell coefficient `b`, stock sensitivity `k`:
+`multiplier = exp(buyImpact * max(demand, 0) + sellImpact * min(demand, 0)
++ stockSensitivity * (stockTarget - currentStock) / stockTarget)`,
+with any configured minimum/maximum multiplier applied prior to exponentiation.
 
-```text
-demandImpact = D >= 0 ? a * D : b * D
-stockImpact  = k * (T - S) / T
-multiplier   = clamp(exp(clamp(demandImpact + stockImpact, -100, 100)), minMultiplier, maxMultiplier)
-buy          = clamp(baseBuy * multiplier, absoluteMinimum, absoluteMaximum)
-sell         = min(clamp(baseSell * multiplier, absoluteMinimum, absoluteMaximum), buy * (1 - minimumSpread))
-```
+Market recovery halves demand each `recovery-half-life-hours`. Every unit of a
+bulk purchase/sale is quoted progressively against the evolving market. Trades
+update market data only on successful ShopGUIPlus post-transaction results.
+State is saved to `market-state.yml` after confirmed transactions.
 
-Each unit of a bulk transaction is priced against the new market state, then summed. A buy removes stock and adds demand; a sale increases stock and subtracts demand. Demand decays toward zero with a configurable half-life (24 hours default). **The quoted state must only be committed after an actual successful transaction**; pricing without execution must never change market state. Do not call quote outside an item-level transaction lock when committing. Apply currency rounding only after summing the transaction.
+**Not complete:** live ShopGUIPlus/Paper integration and exploit tests, transaction
+recovery under disk failures, automatic vanilla recipe discovery, inflation and
+treasury routing, transaction history, GUI synchronisation, cache/restock
+scheduling, MySQL storage, multi-server persistence, and specialised
+VaultUnlocked currency routing. The plugin
+lets ShopGUIPlus continue handling currencies; it does not implement its own economy.
 
-## Design goals and remaining integration
-
-1. Implement ShopGUIPlus price provider/shop type or supported API hook, based on a verified compatible ShopGUIPlus version. Never silently inject GUI display prices that differ from transaction prices.
-2. Atomic persistent state per shop/item/currency; rollback on cancelled/failed transactions, with durable writes and restart recovery.
-3. YAML loading + validation, global/shop/item overrides, and independently configurable buy/sell equations with safe whitelist expression parser.
-4. Quote API and explicit commerce API (preview vs commit), operator commands, test fixtures for farming/hoarding, configurable restock and monetary sinks.
-5. VaultUnlocked currency routing (cosmetic and main currencies) after its API is verified; do not assume Vault's single-currency behavior covers both.
-6. Dedicated presets for farmables, mined resources, rare cosmetics and unlimited-stock items. Simulate them before declaring economic defaults balanced.
-7. Verify modern Paper compatibility and add CI-produced plugin JAR only after Bukkit entrypoint is implemented.
-
-The default spread is at least 10% and base sell is 70% of base buy in the convenience factory. No claims of universal optimality are made.
-
-## Reference
-
-Architecture and feature inspiration: [ShopGUIPlus-DynaShop](https://github.com/Tylwen/ShopGUIPlus-DynaShop) (AGPL-3.0). This repository uses an independently written pricing engine; no DynaShop source files have been copied.
-
-## Shop-specific pricing modes and optional bounds
-
-The core supports per-shop policies selected by `ShopPricing.Mode`: `STATIC` (fixed
-buy/sell prices), `DYNAMIC` (demand plus stock impact) and `STOCK` (stock-only
-pricing). An item-specific policy can override its parent shop; wiring up YAML
-inheritance and ShopGUIPlus registration remains follow-up integration work.
-
-All four bounds in `PricingEngine.Parameters` (minimum/maximum multiplier and
-absolute minimum/maximum price) are nullable. `null` means **no configured bound**.
-In particular omitting both maximum fields permits exponential price growth.
-The default policy retains conservative caps until explicitly overridden.
-No hidden clamp is used to cap the exponent. If price calculations exceed the
-representable numeric range, they fail safely with `ArithmeticException`, rather
-than silently producing infinite or invalid prices. Money arithmetic should
-eventually use decimal-safe amounts at the economy-adapter boundary.
-
-See `config.example.yml` for *proposed* per-shop and per-item YAML shape.
+This is original implementation informed by the publicly documented behaviour of
+[DynaShop](https://github.com/Tylwen/ShopGUIPlus-DynaShop), not a source-code copy.
